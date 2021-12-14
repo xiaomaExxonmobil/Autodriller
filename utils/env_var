@@ -1,0 +1,2 @@
+set STORAGE_BLOB_URL=https://lizlogan.blob.core.windows.net
+az role assignment create --assignee %AZURE_CLIENT_ID% --role "Storage Blob Data Contributor" --scope "/subscriptions/UIT_UIS_DSO_DEV/resourceGroups/rg-escloga/providers/Microsoft.Storage/storageAccounts/lizlogan/blobServices/default/containers/pop-win"
