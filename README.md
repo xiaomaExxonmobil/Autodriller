@@ -13,3 +13,5 @@ Structure
 --  contains notebooks from wells Databricks for POC
 - utils/
 -- contains some connection info for blob storage
+![Sketch of POC algorithm to determin dysfunction level.](poc_algorithm.PNG)
+Sketch of POC algorithm to determin dysfunction level.
