@@ -12,9 +12,9 @@ spark = pyspark.sql.session.SparkSession(sc)
 
 class StandIngestion(object):
     
-    def __init__(self):
-        self.save = True
-        self.well_names = None
+    def __init__(self, well_names, save=False):
+        self.save = save
+        self.well_names = well_names
         self.corva_ops_table = '03_corva.corva_operations_connections_silver'
         self.corva_wits_table = '03_corva.corva_drilling_wits_silver'
         self.df_wits = None
@@ -23,102 +23,161 @@ class StandIngestion(object):
         self.max_stand_length = 100.0
         self.write_format = 'delta'
         self.write_mode = 'overwrite'
-        self.write_table_name = 'auto_driller_mvp_silver'
-        self.mnt_location = f'/mnt/delta/{self.write_table_name}'
+        self.write_table_name = 'auto_driller_1s_silver'
+        self.mnt_location = f'/mnt/delta/{self.write_table_name}/'
         self.write_table_location = 'sandbox'
 
 
-    def get_window(self):
+    def getWindow(self):
         window = Window.partitionBy().orderBy('asset_id')
         return window
     
-    
-    def get_ops_table(self):
-        df_op = (spark.table(self.corva_ops_table)
-              .filter(col('operation_name')=="Drilling(Connection)")
-              .orderBy('assetid',col('recorddatetime').asc()))
-        df_op = df_op.select("assetid", "api_number", "name", "RecordDateTime", "start_bit_depth" )
-        df_op = df_op.filter(col("name").isin(self.well_names))
-        df_op = df_op.withColumnRenamed('name', 'well_name')
-        df_op = df_op.withColumnRenamed('RecordDateTime', 'start_time')
-        df_op = df_op.withColumnRenamed('assetid', 'asset_id')
-        df_op = df_op.orderBy('asset_id', col('RecordDateTime').asc())
-        df_op.select('well_name').distinct().show()
-        
-        window = Window.partitionBy().orderBy("asset_id")
-        
-        self.df_ops = df_op.withColumn('stand_length', func.lag(col('start_bit_depth'), offset = -1).over(window) - col('start_bit_depth'))        
-        self.df_ops = self.df_ops.withColumn('end_time', func.lag(col('start_time'), offset = -1).over(window))
-        self.df_ops = self.df_ops.filter((col('stand_length')<self.max_stand_length) & (col('stand_length') >self.min_stand_length))
-        self.df_ops = self.df_ops.withColumn('stand_id', monotonically_increasing_id())
+    def getOpsTable(self):
+      df_op = (spark.table("03_corva.corva_operations_connections_silver")
+      .filter(col('operation_name')=="Drilling(Connection)")
+      .orderBy('assetid',col('recorddatetime').asc()))
+      df_op = df_op.select("assetid", "api_number", "name", "RecordDateTime", "start_bit_depth" )
+      df_op = df_op.filter(col("name").isin(self.well_names))
+      df_op = df_op.withColumnRenamed('name', 'well_name')
+      df_op = df_op.withColumnRenamed('RecordDateTime', 'start_time')
+      df_op = df_op.withColumnRenamed('assetid', 'asset_id')
+      df_op = df_op.orderBy('asset_id', col('RecordDateTime').asc())
+      window = Window.partitionBy().orderBy("asset_id")
+      self.df_ops = df_op.withColumn('stand_length', func.lag(col('start_bit_depth'), offset = -1).over(window) - col('start_bit_depth'))        
+      self.df_ops = self.df_ops.withColumn('end_time', func.lag(col('start_time'), offset = -1).over(window))
+      self.df_ops = self.df_ops.filter((col('stand_length')<self.max_stand_length) & (col('stand_length') >self.min_stand_length))
+      self.df_ops = self.df_ops.withColumn('stand_id', monotonically_increasing_id())
+      return self.df_ops
 
-        return self.df_ops
     
-    
-    def get_wits_table(self):
+    def getWitsTable(self):
         self.df_wits = (spark.table(self.corva_wits_table))
-        self.df_wits = self.df_wits.select("asset_id", "API", "WellName", "RecordDateTime", "bit_depth", 
+        self.df_wits = (self.df_wits.select("asset_id", "API", "WellName", "RecordDateTime", "bit_depth", 
                                  "hole_depth", "diff_press", "rop", "rotary_rpm", "rotary_torque", 
                                  "weight_on_bit", "state" )
-        self.df_wits = self.df_wits.filter(col("WellName").isin(self.well_names))
+                       .filter(col("WellName").isin(self.well_names)))
         self.df_wits = self.df_wits.withColumnRenamed('WellName', 'well_name')
         self.df_wits = self.df_wits.withColumnRenamed('API', 'api_num')
         self.df_wits = self.df_wits.orderBy('asset_id', col('RecordDateTime').asc())
         return self.df_wits
 
 
-    def join_wits_ops(self):
+    def joinWitsOpsTable(self):
             
         # This is an important cell, joining data based on wits time within op time
         #  op---w========w---op
         #  ----------------------> Time
         self.df_wits.createOrReplaceTempView("wits")
         self.df_ops.createOrReplaceTempView("op")
-        df = spark.sql("""
+        self.df = spark.sql("""
                   SELECT * from wits as w
                   LEFT JOIN op ON w.well_name == op.well_name
                   WHERE ((w.RecordDateTime > op.start_time) and (w.RecordDateTime < op.end_time))
                    """)
-        df = df.select("w.asset_id", 'w.api_num', "w.well_name", 'op.stand_id', 'w.RecordDateTime', 'w.bit_depth', 'w.hole_depth', 'w.rop', 'w.weight_on_bit', 'w.diff_press', 'w.rotary_rpm', 'w.rotary_torque', 'w.state')
-        df = df.orderBy('well_name', col('RecordDateTime').asc())
-        return df
-
+        self.df = self.df.select("w.asset_id", 'w.api_num', "w.well_name", 'op.stand_id', 'w.RecordDateTime', 'w.bit_depth', 'w.hole_depth', 'w.rop', 'w.weight_on_bit', 'w.diff_press', 'w.rotary_rpm', 'w.rotary_torque', 'w.state')
+        self.df = self.df.orderBy('well_name', col('RecordDateTime').asc())
+        return self.df
+      
+    def apply(self):
+      self.getOpsTable()
+      self.getWitsTable()
+      self.joinWitsOpsTable()
+      if self.save:
+        self.writeToDBFS()
+        self.createDeltaTable()
     
-    def write_df(self, df):
-        df.write.format(self.write_format).\
-            mode(self.write_mode).\
-            option("overwriteSchema", "true").\
-            save(self.mnt_location)
-
-        drop_table_command = f'DROP TABLE {self.write_table_location}.{self.mnt_location}'
-        spark.sql(drop_table_command)
+    def getIngestTable(self):
+      return self.df
+    
+    def getDeltaTableName(self):
+      return self.write_table_name
         
-        create_table_command = f'''
-        CREATE TABLE {self.write_table_location}.{self.write_table_name}
-        USING DELTA LOCATION {self.mnt_location}
-        '''
-        spark.sql(create_table_command)
+    def writeToDBFS(self):
+      print('start writing to dbfs')
+      self.df.write.format(self.write_format).\
+          mode(self.write_mode).\
+          option("overwriteSchema", "true").\
+          save(self.mnt_location)
+      print('finish writing to dbfs')
+
+    def createDeltaTable(self):
+      try:
+        drop_table_command =f'DROP TABLE {si.write_table_location}.{si.write_table_name}'
+        spark.sql(drop_table_command)
+      except:
+        print('Table not exist')
+      print('Start creating the table')
+      create_table_command = f'''
+      CREATE TABLE {self.write_table_location}.{self.write_table_name}
+      USING DELTA LOCATION '{self.mnt_location}'
+      '''
+      spark.sql(create_table_command)
+      print('Finish creating the table')
 
 # COMMAND ----------
 
-si = StandIngestion()
+well_names = [
+              'BdC-29(h)', 
+              'BdC-45(h) (Aislacion)', 
+              'Messenger 1-17H ST01', 
+              'BdC-28(h)', 
+              'BdC-30(h)', 
+              'BdC-32(h)', 
+              'Alma 1-12H13X24', 
+              'BdC-47(h)', 
+              'BdC-50(h)(I)', 
+              'Miller 1-28H20X17X8R',
+              'Fish 1-35H26X23',
+              'Tara 1-2H11X14'
+             ]
+
+si = StandIngestion(well_names = well_names, save=True)
+si.apply()
 
 # COMMAND ----------
 
-si.corva_ops_table
+#database credentials
+SINK_DELTA_TABLE = 'auto_driller_1s'
+serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
+databaseName = "WellsIntelGoldTableDev"
+url = serverName + ";" + "databaseName=" + databaseName + ";"
+
+databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
+
+userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
+password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
+
+# #write to Azure SQL
+try:
+  si.getIngestTable().write \
+      .format("com.microsoft.sqlserver.jdbc.spark") \
+      .mode("overwrite") \
+      .option("url", url) \
+      .option("dbtable", SINK_DELTA_TABLE) \
+      .option("user", userName) \
+      .option("password", password) \
+      .save()
+except ValueError as error :
+    print("Connector write failed", error)
 
 # COMMAND ----------
 
-ops_table = si.get_ops_table()
+# MAGIC %md Check DF written to SQL dat 
 
 # COMMAND ----------
 
-df = spark.table('03_corva.corva_operations_connections_silver')
+connectionProperties = {
+  "user" : userName,
+  "password" : password,
+  "driver" : "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+}
+
+df =spark.read.jdbc(url=url, table=SINK_DELTA_TABLE, properties=connectionProperties)
 
 # COMMAND ----------
 
-df.display()
+display(df)
 
 # COMMAND ----------
 
-
+df.select("well_name").distinct().show()

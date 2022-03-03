@@ -89,7 +89,6 @@ class StandStats(object):
 
         return self.df_stand_status
 
-    # well_name = 'BdC-45'
     def display_dysfunc_level(self, column=None, level_column='voting_level', start_stand=10, end_stand=50,
                               well_name="Alma 1-12H13X24", ylim=None, xlim=None, figsize=(16, 8), line_width=2,
                               font_scale=1.0, in_ft=False):
