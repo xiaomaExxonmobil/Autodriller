@@ -8,9 +8,9 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import seaborn as sns
 
-spark = pyspark.sql.session.SparkSession()
+spark = pyspark.sql.session.SparkSession(sc)
 
-class StandIngestion():
+class StandIngestion(object):
     
     def __int__(self):
         self.save = True
@@ -99,7 +99,6 @@ class StandIngestion():
         '''
         spark.sql(create_table_command)
 
-
-
+# COMMAND ----------
 
 
