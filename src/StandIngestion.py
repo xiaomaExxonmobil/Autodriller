@@ -12,7 +12,7 @@ spark = pyspark.sql.session.SparkSession(sc)
 
 class StandIngestion(object):
     
-    def __int__(self):
+    def __init__(self):
         self.save = True
         self.well_names = None
         self.corva_ops_table = '03_corva.corva_operations_connections_silver'
@@ -98,6 +98,26 @@ class StandIngestion(object):
         USING DELTA LOCATION {self.mnt_location}
         '''
         spark.sql(create_table_command)
+
+# COMMAND ----------
+
+si = StandIngestion()
+
+# COMMAND ----------
+
+si.corva_ops_table
+
+# COMMAND ----------
+
+ops_table = si.get_ops_table()
+
+# COMMAND ----------
+
+df = spark.table('03_corva.corva_operations_connections_silver')
+
+# COMMAND ----------
+
+df.display()
 
 # COMMAND ----------
 
