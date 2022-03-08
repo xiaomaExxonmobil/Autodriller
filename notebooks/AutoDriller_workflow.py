@@ -26,9 +26,6 @@ import databricks.koalas as ks
 
 # COMMAND ----------
 
-# Sink the data created here to this table:
-SINK_DELTA_TABLE = 'auto_driller_mvp_fools_gold'
-
 well_names = [
               'BdC-29(h)', 
               'BdC-45(h) (Aislacion)', 
@@ -44,11 +41,7 @@ well_names = [
               'Tara 1-2H11X14'
              ]
 
-well_names = well_names[:5]
-
-# COMMAND ----------
-
-well_names
+well_names = well_names[:8]
 
 # COMMAND ----------
 
@@ -215,10 +208,6 @@ all_the_wells = pd.concat(all_the_wells).reset_index(drop=True)
 
 # COMMAND ----------
 
-all_the_wells.groupby()
-
-# COMMAND ----------
-
 zcols = [col for col in all_the_wells.columns if 'isOutlier_' in col]
 print(zcols)
 wells = []
@@ -244,8 +233,8 @@ for well in well_names:
             mask = new_df[outlier_p] > high_level_bound
             new_df.loc[mask, 'health_' + variable]='bad'  
     stand_grouper = this_well.groupby('stand_id')
-    new_df['asset_id'] = this_well['asset_id'].loc[0]
-    new_df['well_name'] = this_well['well_name'].loc[0]
+    new_df['asset_id'] = this_well['asset_id'].iloc[0]
+    new_df['well_name'] = this_well['well_name'].iloc[0]
     new_df['stand_id'] = stand_grouper['stand_id'].mean()
     new_df['start_bitdepth'] = stand_grouper['bit_depth'].min()
     new_df['end_bitdepth'] = stand_grouper['bit_depth'].max()
@@ -273,41 +262,73 @@ for col in wells.columns:
 
 # COMMAND ----------
 
+wells['well_name'].unique()
+
+# COMMAND ----------
+
 wells.columns
+
+# COMMAND ----------
+
+wells[mask_final]
 
 # COMMAND ----------
 
 well_name = 'BdC-45(h) (Aislacion)'
 mask_final = (wells['well_name']==well_name)
 col = 'rop'
-plt.subplot(2,1,1)
-x = 0.5*(wells[mask_final&bit_depth_mask].start_bitdepth + wells[mask_final&bit_depth_mask].end_bitdepth)*0.3048
+#plt.subplot(2,1,1)
 sns.scatterplot(wells[mask_final]['stand_id'], wells[mask_final]['stand_duration'],hue = wells[mask_final]['health_total'], palette={'good':'green', 'ok':'orange', 'bad':'red'})
 
 # COMMAND ----------
 
-# #-----------------------------------------------------------------------------------------------------------
-# df_final_to_spark = spark.createDataFrame(wells)
-# #-----------------------------------------------------------------------------------------------------------
-# #database credentials
-# serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
-# databaseName = "WellsIntelGoldTableDev"
-# url = serverName + ";" + "databaseName=" + databaseName + ";"
+#Adding SME_Feedback and SME_Name columns
+wells['SME_Feedback'] = ""
+wells['SME_Name'] = ""
 
-# databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
+# COMMAND ----------
 
-# userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
-# password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
+#-----------------------------------------------------------------------------------------------------------
+df_final_to_spark = spark.createDataFrame(wells)
+#-----------------------------------------------------------------------------------------------------------
+#database credentials
+serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
+databaseName = "WellsIntelGoldTableDev"
+url = serverName + ";" + "databaseName=" + databaseName + ";"
+SINK_DELTA_TABLE = 'auto_driller_mvp_health'
+databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
 
-# #write to Azure SQL
-# try:
-#     df_final_to_spark.write \
-#         .format("com.microsoft.sqlserver.jdbc.spark") \
-#         .mode("overwrite") \
-#         .option("url", url) \
-#         .option("dbtable", SINK_DELTA_TABLE) \
-#         .option("user", userName) \
-#         .option("password", password) \
-#         .save()
-# except ValueError as error :
-#     print("Connector write failed", error)
+userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
+password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
+
+#write to Azure SQL
+try:
+    df_final_to_spark.write \
+        .format("com.microsoft.sqlserver.jdbc.spark") \
+        .mode("overwrite") \
+        .option("url", url) \
+        .option("dbtable", SINK_DELTA_TABLE) \
+        .option("user", userName) \
+        .option("password", password) \
+        .save()
+except ValueError as error :
+    print("Connector write failed", error)
+
+# COMMAND ----------
+
+#Check if wrote to SQL database successfully
+connectionProperties = {
+  "user" : userName,
+  "password" : password,
+  "driver" : "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+}
+
+df =spark.read.jdbc(url=url, table=SINK_DELTA_TABLE, properties=connectionProperties)
+
+# COMMAND ----------
+
+display(df)
+
+# COMMAND ----------
+
+
