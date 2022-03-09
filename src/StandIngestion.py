@@ -134,6 +134,7 @@ class StandIngestion(object):
 
 # COMMAND ----------
 
+SAVE = False
 well_names = [
               'BdC-29(h)', 
               'BdC-45(h) (Aislacion)', 
@@ -191,28 +192,29 @@ df.select("well_name","asset_id").distinct().show()
 # COMMAND ----------
 
 #database credentials
-SINK_DELTA_TABLE = 'auto_driller_1s'
-serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
-databaseName = "WellsIntelGoldTableDev"
-url = serverName + ";" + "databaseName=" + databaseName + ";"
+if SAVE:
+  SINK_DELTA_TABLE = 'auto_driller_1s'
+  serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
+  databaseName = "WellsIntelGoldTableDev"
+  url = serverName + ";" + "databaseName=" + databaseName + ";"
 
-databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
+  databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
 
-userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
-password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
+  userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
+  password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
 
-# #write to Azure SQL
-try:
-  si.getIngestTable().write \
-      .format("com.microsoft.sqlserver.jdbc.spark") \
-      .mode("overwrite") \
-      .option("url", url) \
-      .option("dbtable", SINK_DELTA_TABLE) \
-      .option("user", userName) \
-      .option("password", password) \
-      .save()
-except ValueError as error :
-    print("Connector write failed", error)
+  # #write to Azure SQL
+  try:
+    si.getIngestTable().write \
+        .format("com.microsoft.sqlserver.jdbc.spark") \
+        .mode("overwrite") \
+        .option("url", url) \
+        .option("dbtable", SINK_DELTA_TABLE) \
+        .option("user", userName) \
+        .option("password", password) \
+        .save()
+  except ValueError as error :
+      print("Connector write failed", error)
 
 # COMMAND ----------
 
