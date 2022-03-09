@@ -26,6 +26,8 @@ import databricks.koalas as ks
 
 # COMMAND ----------
 
+SINK_DELTA_TABLE = 'auto_driller_mvp_fools_gold'
+SAVE= True
 well_names = [
               'BdC-29(h)', 
               'BdC-45(h) (Aislacion)', 
@@ -56,6 +58,14 @@ df_wits_ops = spark.table("sandbox.auto_driller_1s_silver")
 
 # COMMAND ----------
 
+df_wits_ops.select('asset_id').distinct().collect()
+
+# COMMAND ----------
+
+df_wits_ops.select('well_name').distinct().collect()
+
+# COMMAND ----------
+
 df_wits_ops.createOrReplaceTempView("wits")
 df_mast.createOrReplaceTempView("mast")
 df = spark.sql("""
@@ -64,6 +74,14 @@ df = spark.sql("""
            """)
 df = df.select("w.asset_id", "w.well_name", 'w.stand_id', 'w.RecordDateTime', 'w.bit_depth', 'w.hole_depth', 'w.rop', 'w.weight_on_bit', 'w.diff_press', 'w.rotary_rpm', 'w.rotary_torque', 'w.state', 'mast.latitude', 'mast.longitude')
 df = df.orderBy('well_name', col('RecordDateTime').asc())
+
+# COMMAND ----------
+
+df.select('asset_id').distinct().show()
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
@@ -288,31 +306,63 @@ wells['SME_Name'] = ""
 
 # COMMAND ----------
 
-#-----------------------------------------------------------------------------------------------------------
-df_final_to_spark = spark.createDataFrame(wells)
-#-----------------------------------------------------------------------------------------------------------
-#database credentials
-serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
-databaseName = "WellsIntelGoldTableDev"
-url = serverName + ";" + "databaseName=" + databaseName + ";"
-SINK_DELTA_TABLE = 'auto_driller_mvp_health'
-databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
+if SAVE:
+    #-----------------------------------------------------------------------------------------------------------
+    df_final_to_spark = spark.createDataFrame(wells)
+    #-----------------------------------------------------------------------------------------------------------
+    #database credentials
+    serverName = "jdbc:sqlserver://sqls-wells-ussc-prd.database.windows.net:1433"
+    databaseName = "WellsIntelGoldTableDev"
+    url = serverName + ";" + "databaseName=" + databaseName + ";"
+    databricksKeyVaultScope = "Wells.Databricks.Keyvault.Secrets"
 
-userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
-password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
+    userName = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksUsername")
+    password = dbutils.secrets.get(databricksKeyVaultScope, "wellsIntelGoldTableDatabricksPassword")
 
-#write to Azure SQL
-try:
-    df_final_to_spark.write \
-        .format("com.microsoft.sqlserver.jdbc.spark") \
-        .mode("overwrite") \
-        .option("url", url) \
-        .option("dbtable", SINK_DELTA_TABLE) \
-        .option("user", userName) \
-        .option("password", password) \
-        .save()
-except ValueError as error :
-    print("Connector write failed", error)
+    #write to Azure SQL
+    try:
+        df_final_to_spark.write \
+            .format("com.microsoft.sqlserver.jdbc.spark") \
+            .mode("overwrite") \
+            .option("url", url) \
+            .option("dbtable", SINK_DELTA_TABLE) \
+            .option("user", userName) \
+            .option("password", password) \
+            .save()
+    except ValueError as error :
+        print("Connector write failed", error)
+
+# COMMAND ----------
+
+write_format = 'delta'
+write_mode = 'overwrite'
+write_table_name = 'auto_driller_mvp_health'
+mnt_location = f'/mnt/delta/{write_table_name}/'
+write_table_location = 'sandbox'
+def writeToDBFS(df):
+    print('start writing to dbfs')
+    df.write.format(write_format).\
+      mode(write_mode).\
+      option("overwriteSchema", "true").\
+      save(mnt_location)
+    print('finish writing to dbfs')
+        
+def createDeltaTable():
+    try:
+        drop_table_command =f'DROP TABLE {write_table_location}.{write_table_name}'
+        spark.sql(drop_table_command)
+    except:
+        print('Table not exist')
+    print('Start creating the table')
+    create_table_command = f'''
+                            CREATE TABLE {write_table_location}.{write_table_name}
+                            USING DELTA LOCATION '{mnt_location}'
+                            '''
+    spark.sql(create_table_command)
+    print('Finish creating the table')
+
+writeToDBFS(df_final_to_spark)
+createDeltaTable()
 
 # COMMAND ----------
 

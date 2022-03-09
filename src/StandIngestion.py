@@ -8,8 +8,9 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import seaborn as sns
 
+config = pyspark.SparkConf().setAll([('spark.executor.memory', '8g'), ('spark.executor.cores', '4'), ('spark.cores.max', '4'), ('spark.driver.memory','8g')])
+sc = pyspark.SparkContext.getOrCreate(conf=config)
 spark = pyspark.sql.session.SparkSession(sc)
-
 class StandIngestion(object):
     
     def __init__(self, well_names, save=False):
@@ -19,6 +20,7 @@ class StandIngestion(object):
         self.corva_wits_table = '03_corva.corva_drilling_wits_silver'
         self.df_wits = None
         self.df_ops = None
+        self.df_master= None
         self.min_stand_length = 20.0
         self.max_stand_length = 100.0
         self.write_format = 'delta'
@@ -26,12 +28,24 @@ class StandIngestion(object):
         self.write_table_name = 'auto_driller_1s_silver'
         self.mnt_location = f'/mnt/delta/{self.write_table_name}/'
         self.write_table_location = 'sandbox'
-
-
+        
+    def getMasterTable(self):
+      self.df_master = (spark.table("03_corva.corva_master_assets"))
+      self.df_master = self.df_master.select("AssetID", "name", "latitude", "longitude")
+      self.df_master = self.df_master.filter(col("name").isin(well_names))
+      self.df_master = self.df_master.withColumnRenamed('name', 'well_name')
+      self.df_master = self.df_master.withColumnRenamed('AssetID', 'asset_id')
+      return self.df_master
+    
+    def getAllAssetIDs(self):
+      asset_ids = self.df_master.select('asset_id').distinct().collect()
+      asset_ids = [int(asset_id[0]) for asset_id in asset_ids]
+      return asset_ids
+    
     def getWindow(self):
         window = Window.partitionBy().orderBy('asset_id')
         return window
-    
+
     def getOpsTable(self):
       df_op = (spark.table("03_corva.corva_operations_connections_silver")
       .filter(col('operation_name')=="Drilling(Connection)")
@@ -60,7 +74,8 @@ class StandIngestion(object):
         self.df_wits = self.df_wits.withColumnRenamed('API', 'api_num')
         self.df_wits = self.df_wits.orderBy('asset_id', col('RecordDateTime').asc())
         return self.df_wits
-
+      
+   
 
     def joinWitsOpsTable(self):
             
@@ -79,9 +94,12 @@ class StandIngestion(object):
         return self.df
       
     def apply(self):
+      self.getMasterTable()
       self.getOpsTable()
       self.getWitsTable()
       self.joinWitsOpsTable()
+      asset_ids = self.getAllAssetIDs()
+      self.df = self.df.filter(col('asset_id').isin(asset_ids))
       if self.save:
         self.writeToDBFS()
         self.createDeltaTable()
@@ -129,10 +147,46 @@ well_names = [
               'Miller 1-28H20X17X8R',
               'Fish 1-35H26X23',
               'Tara 1-2H11X14'
-             ]
+             ]`
 
 si = StandIngestion(well_names = well_names, save=True)
 si.apply()
+
+# COMMAND ----------
+
+df=si.getIngestTable()
+df.select("well_name","asset_id").distinct().show()
+
+# COMMAND ----------
+
+#Utility functions to check if there is duplciated asset ids for the same wells
+
+# def checkSameWell(well_name):
+#   df = si.getWitsTable().filter(col('well_name')==well_name)
+#   asset_ids = [asset_id[0] for asset_id in df.select('asset_id').distinct().collect()]
+#   asset_ids.sort()
+#   asset_id1 = asset_ids[0]
+#   asset_id2 = asset_ids[1]
+#   t1 = df.filter(col('asset_id')==asset_id1).orderBy(col('RecordDateTime').asc()).select(func.first('RecordDateTime'),
+#                                                                                          func.last('RecordDateTime')).collect()
+#   t2 = df.filter(col('asset_id')==asset_id2).orderBy(col('RecordDateTime').asc()).select(func.first('RecordDateTime'),
+#                                                                                          func.last('RecordDateTime')).collect()
+#   print('*********************')
+#   print(f'{well_name}')
+#   print(f'asset {asset_id1} time time range is {t1}')
+#   print(f'asset {asset_id2} Record first time is {t2}')
+  
+# def getDuplicatedWellList(df, well_names):
+#   well_list = []
+#   for well_name in well_names:
+#     asset_ids = df.filter(col('well_name')==well_name).select('asset_id').distinct().collect()
+#     if len(asset_ids)>1:
+#       well_list.append(well_name)
+#   return well_list
+      
+# well_list = getDuplicatedWellList(si.getWitsTable(), well_names)
+# for well_name in well_list:
+#   checkSameWell(well_name)
 
 # COMMAND ----------
 
