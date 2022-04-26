@@ -1,7 +1,7 @@
 # Databricks notebook source
 import pyspark.sql
 from pyspark.sql import functions as func
-from pyspark.sql.functions import col, monotonically_increasing_id
+from pyspark.sql.functions import col, monotonically_increasing_id, row_number
 from pyspark.sql.window import Window
 import matplotlib.pyplot as plt
 from plotly.subplots import make_subplots
@@ -18,7 +18,7 @@ class StandIngestion(object):
         self.well_names = well_names
         self.asset_ids = []
         self.corva_ops_table = '03_corva.corva_operations_connections_silver'
-        self.corva_wits_table = '03_corva.corva_drilling_wits_silver'
+        self.corva_wits_table = '03_corva.corva_drilling_wits_assetid'
         self.df_wits = None
         self.df_ops = None
         self.df_master= None
@@ -62,7 +62,9 @@ class StandIngestion(object):
       self.df_ops = df_op.withColumn('stand_length', func.lag(col('start_bit_depth'), offset = -1).over(window) - col('start_bit_depth'))        
       self.df_ops = self.df_ops.withColumn('end_time', func.lag(col('start_time'), offset = -1).over(window))
       self.df_ops = self.df_ops.filter((col('stand_length')<self.max_stand_length) & (col('stand_length') >self.min_stand_length))
-      self.df_ops = self.df_ops.withColumn('stand_id', monotonically_increasing_id())
+      self.df_ops = self.df_ops.withColumn("stand_id", 
+                                           row_number()
+                                           .over(Window.partitionBy('asset_id').orderBy('start_time')))
       return self.df_ops
 
     
@@ -136,24 +138,28 @@ class StandIngestion(object):
 # COMMAND ----------
 
 well_names = [
-              'BdC-29(h)', 
-              'BdC-45(h) (Aislacion)', 
-              'Messenger 1-17H ST01', 
-              'BdC-28(h)', 
-              'BdC-30(h)', 
-              'BdC-32(h)', 
-              'Alma 1-12H13X24', 
-              'BdC-47(h)', 
-              'BdC-50(h)(I)', 
-              'Miller 1-28H20X17X8R',
-              'Fish 1-35H26X23',
-              'Tara 1-2H11X14'
-             ]
+  'BdC-29(h)', 
+  'BdC-45(h) (Aislacion)', 
+  'Messenger 1-17H ST01', 
+  'BdC-28(h)', 
+  'BdC-30(h)', 
+  'BdC-32(h)', 
+  'Alma 1-12H13X24', 
+  'BdC-47(h)', 
+  'BdC-50(h)(I)', 
+  'Miller 1-28H20X17X8R',
+  'Fish 1-35H26X23',
+  'Tara 1-2H11X14',
+  'Tims 1-35H26X27X22X15'
+]
 
-si = StandIngestion(well_names = well_names, save=False)
+si = StandIngestion(well_names = well_names, save=True)
 si.apply()
 
 # COMMAND ----------
 
 df=si.getIngestTable()
-df.select("well_name","asset_id").distinct().show()
+df_agg = df.groupBy('asset_id').agg(func.first('well_name'), 
+                                    func.min('hole_depth'), func.max('hole_depth'),
+                                    func.countDistinct('stand_id'))
+display(df_agg)
