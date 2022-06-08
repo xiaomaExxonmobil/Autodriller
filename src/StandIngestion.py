@@ -152,6 +152,7 @@ well_names = [
   'Tara 1-2H11X14',
   'Tims 1-35H26X27X22X15'
 ]
+#well_names = ["Keydets-A 47 #4H"]
 
 si = StandIngestion(well_names = well_names, save=True)
 si.apply()
@@ -162,4 +163,19 @@ df=si.getIngestTable()
 df_agg = df.groupBy('asset_id').agg(func.first('well_name'), 
                                     func.min('hole_depth'), func.max('hole_depth'),
                                     func.countDistinct('stand_id'))
+display(df_agg)
+
+# COMMAND ----------
+
+df=si.getOpsTable()
+df_agg = df.groupBy('asset_id').agg(func.first('well_name'), 
+                                    func.min('start_bit_depth'), func.max('start_bit_depth'),
+                                    func.countDistinct('stand_id'))
+display(df_agg)
+
+# COMMAND ----------
+
+df=si.getWitsTable()
+df_agg = df.groupBy('asset_id').agg(func.first('well_name'), 
+                                    func.min('hole_depth'), func.max('hole_depth'))                                    
 display(df_agg)
