@@ -67,126 +67,20 @@ def createDeltaTable(df):
 
 # COMMAND ----------
 
-df_1s = loadFromSQLDB('auto_driller_1s')
-df_health = loadFromSQLDB('auto_driller_mvp_fools_gold')
+df_1s = spark.table('sandbox.auto_driller_1s_silver_test').orderBy(['asset_id', 'stand_id', 'RecordDatetime'])
 
 # COMMAND ----------
 
-df_label = spark.read.csv(r'dbfs:/FileStore/AD_labels/Pablo_50_Good_labels', header=True)
+df_data = df_1s
 
 # COMMAND ----------
 
-display(df_label)
-
-# COMMAND ----------
-
-df_label = df_label.toPandas()
-
-# COMMAND ----------
-
-sns.countplot(data=df_label, x='AD_Feedback')
-
-# COMMAND ----------
-
-df_label['SME_Name'].unique()
-
-# COMMAND ----------
-
-df_label[df_label['SME_Name']=='pablo.barajas1@exxonmobil.com'].head()
-
-# COMMAND ----------
-
-df_label[df_label['SME_Name']=='pablo.barajas1@exxonmobil.com'].describe()
-
-# COMMAND ----------
-
-df_label[(df_label['SME_Name']=='pablo.barajas1@exxonmobil.com') & (df_label['AD_Feedback']=='good')].head()
-
-# COMMAND ----------
-
-df_label_good = df_label[(df_label['SME_Name']=='pablo.barajas1@exxonmobil.com') & (df_label['AD_Feedback']=='good')]
-
-# COMMAND ----------
-
-sns.countplot(data=df_label_good, x='AD_Feedback')
-
-# COMMAND ----------
-
-df_health = df_health.toPandas()
-
-# COMMAND ----------
-
-df_health.head()
-
-# COMMAND ----------
-
-df_bad= df_health[df_health['health_total']=='bad'][['asset_id', 'stand_id',  'stand_duration', 'health_total']].sample(50, random_state=42)
-#f_bad = df_label[df_label['health_total']=='bad'][['asset_id', 'stand_id',  'stand_duration', 'health_total']].sample(50, random_state=42)
-
-# COMMAND ----------
-
-df_label_good['health_total'] = df_label_good['AD_Feedback']
-
-# COMMAND ----------
-
-df_good = df_label_good[['asset_id', 'stand_id',  'stand_duration', 'health_total']]
-
-# COMMAND ----------
-
-import numpy as np
-
-# COMMAND ----------
-
-convert_dict = {'asset_id': np.int64,
-                'stand_id': np.int32,
-                'stand_duration': np.int32,
-                'health_total': str}
-df_good = df_good.astype(convert_dict)
-
-# COMMAND ----------
-
-df_good.dtypes
-
-# COMMAND ----------
-
-df_bad.dtypes
-
-# COMMAND ----------
-
-df_label_new = pd.concat([df_good, df_bad])
-
-# COMMAND ----------
-
-sns.countplot(data=df_label_new, x='health_total')
-
-# COMMAND ----------
-
-df_label_spark = spark.createDataFrame(df_label_new)
-
-# COMMAND ----------
-
-df_data = df_1s.join(df_label_spark, how='inner', on=['asset_id', 'stand_id'])
-
-# COMMAND ----------
-
-columns = ['asset_id', 'stand_id', 'well_name', 'RecordDateTime', 'bit_depth', 'rop', 'weight_on_bit','stand_duration', 'health_total']
+columns = ['asset_id', 'stand_id', 'well_name', 'RecordDateTime', 'bit_depth', 'rop', 'weight_on_bit']
 df = df_data.select(columns).toPandas()
 
 # COMMAND ----------
 
-# MAGIC %md **Get the 1 second data with labels**
-
-# COMMAND ----------
-
-# MAGIC %md check Null values
-
-# COMMAND ----------
-
-df.isna().sum()
-
-# COMMAND ----------
-
-df_train = df[['asset_id', 'well_name', 'stand_id', 'RecordDateTime', 'rop', 'weight_on_bit', 'health_total']]
+df_train = df[['asset_id', 'well_name', 'stand_id', 'RecordDateTime', 'rop', 'weight_on_bit']]
 
 # COMMAND ----------
 
@@ -202,7 +96,7 @@ df_train['new_id'] = df_train['asset_id'].astype('str') + '~' + df_train['stand_
 
 # COMMAND ----------
 
-df_temp = df_train[['new_id', 'RecordDateTime', 'rop', 'weight_on_bit', 'health_total']]
+df_temp = df_train[['new_id', 'RecordDateTime', 'rop', 'weight_on_bit']]
 
 # COMMAND ----------
 
@@ -210,19 +104,14 @@ df_temp.head()
 
 # COMMAND ----------
 
-df_temp.dropna()
-
-# COMMAND ----------
+kind_to_fc_parameters = {'rop': {'sum_values': None, 'median': None, 'mean': None, 'length': None, 'standard_deviation': None, 'variance': None, 'root_mean_square': None, 'maximum': None, 'absolute_maximum': None, 'minimum': None}}
 
 from tsfresh import extract_features
 from tsfresh.feature_extraction import EfficientFCParameters, MinimalFCParameters
 
-# extracted_features = extract_features(df_temp[['stand_id', 'RecordDateTime', 'rop']], column_id="stand_id", 
-#                                       column_sort="RecordDateTime")
-
 extracted_features = extract_features(df_temp[['new_id', 'RecordDateTime', 'rop']], column_id='new_id', 
                                       column_sort="RecordDateTime",
-                                    default_fc_parameters= MinimalFCParameters())
+                                    kind_to_fc_parameters= kind_to_fc_parameters)
 
 # COMMAND ----------
 
@@ -409,60 +298,60 @@ y_val = y_test
 
 # COMMAND ----------
 
-# import mlflow.xgboost
-# import numpy as np
-# import xgboost as xgb
-# from hyperopt import fmin, tpe, hp, SparkTrials, Trials, STATUS_OK
-# from hyperopt.pyll import scope
-# from mlflow.models.signature import infer_signature
-# from mlflow.utils.environment import _mlflow_conda_env
+import mlflow.xgboost
+import numpy as np
+import xgboost as xgb
+from hyperopt import fmin, tpe, hp, SparkTrials, Trials, STATUS_OK
+from hyperopt.pyll import scope
+from mlflow.models.signature import infer_signature
+from mlflow.utils.environment import _mlflow_conda_env
 
 
  
-# search_space = {
-#   'max_depth': scope.int(hp.quniform('max_depth', 4, 100, 1)),
-#   'learning_rate': hp.loguniform('learning_rate', -3, 0),
-#   'reg_alpha': hp.loguniform('reg_alpha', -5, -1),
-#   'reg_lambda': hp.loguniform('reg_lambda', -6, -1),
-#   'min_child_weight': hp.loguniform('min_child_weight', -1, 3),
-#   'objective': 'binary:logistic',
-#   'seed': 123, # Set a seed for deterministic training
-# }
+search_space = {
+  'max_depth': scope.int(hp.quniform('max_depth', 4, 100, 1)),
+  'learning_rate': hp.loguniform('learning_rate', -3, 0),
+  'reg_alpha': hp.loguniform('reg_alpha', -5, -1),
+  'reg_lambda': hp.loguniform('reg_lambda', -6, -1),
+  'min_child_weight': hp.loguniform('min_child_weight', -1, 3),
+  'objective': 'binary:logistic',
+  'seed': 123, # Set a seed for deterministic training
+}
  
-# def train_model(params):
-#   # With MLflow autologging, hyperparameters and the trained model are automatically logged to MLflow.
-#   mlflow.xgboost.autolog()
-#   with mlflow.start_run(nested=True):
-#     train = xgb.DMatrix(data=X_train, label=y_train)
-#     validation = xgb.DMatrix(data=X_val, label=y_val)
-#     # Pass in the validation set so xgb can track an evaluation metric. XGBoost terminates training when the evaluation metric
-#     # is no longer improving.
-#     booster = xgb.train(params=params, dtrain=train, num_boost_round=1000,\
-#                         evals=[(validation, "validation")], early_stopping_rounds=50)
-#     validation_predictions = booster.predict(validation)
-#     auc_score = roc_auc_score(y_val, validation_predictions)
-#     mlflow.log_metric('auc', auc_score)
+def train_model(params):
+  # With MLflow autologging, hyperparameters and the trained model are automatically logged to MLflow.
+  mlflow.xgboost.autolog()
+  with mlflow.start_run(nested=True):
+    train = xgb.DMatrix(data=X_train, label=y_train)
+    validation = xgb.DMatrix(data=X_val, label=y_val)
+    # Pass in the validation set so xgb can track an evaluation metric. XGBoost terminates training when the evaluation metric
+    # is no longer improving.
+    booster = xgb.train(params=params, dtrain=train, num_boost_round=1000,\
+                        evals=[(validation, "validation")], early_stopping_rounds=50)
+    validation_predictions = booster.predict(validation)
+    auc_score = roc_auc_score(y_val, validation_predictions)
+    mlflow.log_metric('auc', auc_score)
  
-#     signature = infer_signature(X_train, booster.predict(train))
-#     mlflow.xgboost.log_model(booster, "model", signature=signature)
+    signature = infer_signature(X_train, booster.predict(train))
+    mlflow.xgboost.log_model(booster, "model", signature=signature)
     
-#     # Set the loss to -1*auc_score so fmin maximizes the auc_score
-#     return {'status': STATUS_OK, 'loss': -1*auc_score, 'booster': booster.attributes()}
+    # Set the loss to -1*auc_score so fmin maximizes the auc_score
+    return {'status': STATUS_OK, 'loss': -1*auc_score, 'booster': booster.attributes()}
  
-# # Greater parallelism will lead to speedups, but a less optimal hyperparameter sweep. 
-# # A reasonable value for parallelism is the square root of max_evals.
-# spark_trials = SparkTrials(parallelism=10)
+# Greater parallelism will lead to speedups, but a less optimal hyperparameter sweep. 
+# A reasonable value for parallelism is the square root of max_evals.
+spark_trials = SparkTrials(parallelism=10)
  
-# # Run fmin within an MLflow run context so that each hyperparameter configuration is logged as a child run of a parent
-# # run called "xgboost_models" .
-# with mlflow.start_run(run_name='xgboost_models'):
-#   best_params = fmin(
-#     fn=train_model, 
-#     space=search_space, 
-#     algo=tpe.suggest, 
-#     max_evals=96,
-#     trials=spark_trials,
-#   )
+# Run fmin within an MLflow run context so that each hyperparameter configuration is logged as a child run of a parent
+# run called "xgboost_models" .
+with mlflow.start_run(run_name='xgboost_models'):
+  best_params = fmin(
+    fn=train_model, 
+    space=search_space, 
+    algo=tpe.suggest, 
+    max_evals=96,
+    trials=spark_trials,
+  )
 
 # COMMAND ----------
 

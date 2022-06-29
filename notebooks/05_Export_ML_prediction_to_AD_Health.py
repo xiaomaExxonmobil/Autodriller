@@ -72,16 +72,81 @@ def exportDFToSQLDB(df, sql_db_table_name, overwrite=False ):
 
 # COMMAND ----------
 
+# MAGIC %md load gold tables
+
+# COMMAND ----------
+
+df_1s_gold = spark.table('sandbox.auto_driller_ad_dashboard_1s_golden')
+df_health_gold = spark.table('sandbox.auto_driller_ad_dashboard_health')
+
+# COMMAND ----------
+
+well_name_const = 'Keydets-A 47 #4H'
+df_1s_gold = df_1s_gold.filter(col('well_name')!=well_name_const)
+df_health_gold = df_health_gold.filter(col('well_name')!=well_name_const)
+
+# COMMAND ----------
+
 df_1s = spark.table('sandbox.auto_driller_1s_silver_test')
-w = Window.partitionBy(['asset_id', 'stand_id'])
-df_temp=df_1s.withColumn('max_time', f.max('RecordDateTime').over(w) - f.expr('INTERVAL 5 MINUTES'))
-df_temp=df_temp.withColumn('min_time', f.min('RecordDateTime').over(w) + f.expr('INTERVAL 5 MINUTES'))
-df_temp = df_temp.filter((col('RecordDateTime')>col('min_time'))&(col('RecordDateTime')<col('max_time'))).drop('max_time', 'min_time')
 
 # COMMAND ----------
 
-exportDFToSQLDB(df_temp, 'auto_driller_1s', overwrite=False)
+df_1s.select('well_name').distinct().show()
 
 # COMMAND ----------
 
-exportToSQLDB('sandbox.auto_driller_mvp_health_test', 'auto_driller_mvp_fools_gold', overwrite=False)
+df_health = spark.table('sandbox.auto_driller_inference_mvp_health')
+
+# COMMAND ----------
+
+display(df_health)
+
+# COMMAND ----------
+
+#Add Constant columns to avoid information relink in dashboard
+from pyspark.sql.functions import lit
+from pyspark.sql.types import IntegerType
+df_health = df_health.drop('rop__sum_values',
+ 'rop__median',
+ 'rop__mean',
+ 'rop__length',
+ 'rop__standard_deviation',
+ 'rop__variance',
+ 'rop__root_mean_square',
+ 'rop__maximum',
+ 'rop__absolute_maximum',
+ 'rop__minimum', 'prediction', 'AD_Health')
+df_health = df_health.withColumnRenamed('AD_Health_Final', 'health_total')
+df_health=df_health.withColumn("stand_id",df_health.stand_id.cast(IntegerType()))
+const_columns = ['outlier_percent_rop',
+ 'health_rop',
+ 'outlier_percent_weight_on_bit',
+ 'health_weight_on_bit',
+ 'outlier_percent_diff_press',
+ 'health_diff_press',
+ 'outlier_percent_rotary_rpm',
+ 'health_rotary_rpm',
+ 'outlier_percent_rotary_torque',
+ 'health_rotary_torque']
+for column in const_columns:
+  df_health = df_health.withColumn(column, lit(999))
+
+# COMMAND ----------
+
+display(df_health)
+
+# COMMAND ----------
+
+df_health = df_health.union(df_health_gold)
+
+# COMMAND ----------
+
+df_1s = df_1s.union(df_1s_gold)
+
+# COMMAND ----------
+
+exportDFToSQLDB(df_1s, 'auto_driller_1s', overwrite=True)
+
+# COMMAND ----------
+
+exportDFToSQLDB(df_health, 'auto_driller_mvp_fools_gold', overwrite=True)

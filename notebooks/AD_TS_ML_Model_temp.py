@@ -186,6 +186,10 @@ df.isna().sum()
 
 # COMMAND ----------
 
+df.head()
+
+# COMMAND ----------
+
 df_train = df[['asset_id', 'well_name', 'stand_id', 'RecordDateTime', 'rop', 'weight_on_bit', 'health_total']]
 
 # COMMAND ----------
@@ -202,7 +206,8 @@ df_train['new_id'] = df_train['asset_id'].astype('str') + '~' + df_train['stand_
 
 # COMMAND ----------
 
-df_temp = df_train[['new_id', 'RecordDateTime', 'rop', 'weight_on_bit', 'health_total']]
+columns = ['new_id', 'RecordDateTime', 'rop', 'weight_on_bit', 'health_total']
+df_temp = df_train[]
 
 # COMMAND ----------
 
@@ -259,6 +264,11 @@ sns.countplot(data=df_temp, x='health_total')
 # COMMAND ----------
 
 extracted_features.shape
+
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
@@ -356,42 +366,18 @@ with mlflow.start_run(run_name='random_forest') as run:
 
 # COMMAND ----------
 
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
-
-sns.heatmap(confusion_matrix(model.predict(X_test), y_test), annot=True)
-
-# COMMAND ----------
-
-plot_roc_and_precision_recall(model, X_train, y_train, X_test, y_test, model_name='Random Forest')
-
-# COMMAND ----------
-
-from sklearn.metrics import accuracy_score
-accuracy_score(y_test, model.predict(X_test))
-
-# COMMAND ----------
-
-print(f'AUC: {roc_auc_score(y_test, model.predict(X_test))}')
-
-# COMMAND ----------
-
 import sklearn
-with mlflow.start_run(run_name='gradient_boost') as run:
-  model = sklearn.ensemble.GradientBoostingClassifier(random_state=0)
+with mlflow.start_run(run_name='random_forest') as run:
+  model = RandomForestClassifier(
+    random_state=0, 
+    max_depth=20
+  )
   model.fit(X_train, y_train)
+
   predicted_probs = model.predict_proba(X_test)
   roc_auc = sklearn.metrics.roc_auc_score(y_test, predicted_probs[:,1])
   mlflow.log_metric("test_auc", roc_auc)
   print("Test AUC of: {}".format(roc_auc))
-
-# COMMAND ----------
-
-model.predict_proba(X_test)
-
-# COMMAND ----------
-
-sns.heatmap(confusion_matrix(model.predict(X_test), y_test), annot=True)
 
 # COMMAND ----------
 
@@ -409,60 +395,115 @@ y_val = y_test
 
 # COMMAND ----------
 
-# import mlflow.xgboost
-# import numpy as np
-# import xgboost as xgb
-# from hyperopt import fmin, tpe, hp, SparkTrials, Trials, STATUS_OK
-# from hyperopt.pyll import scope
-# from mlflow.models.signature import infer_signature
-# from mlflow.utils.environment import _mlflow_conda_env
+import mlflow.xgboost
+import numpy as np
+import xgboost as xgb
+from hyperopt import fmin, tpe, hp, SparkTrials, Trials, STATUS_OK
+from hyperopt.pyll import scope
+from mlflow.models.signature import infer_signature
+from mlflow.utils.environment import _mlflow_conda_env
 
 
  
-# search_space = {
-#   'max_depth': scope.int(hp.quniform('max_depth', 4, 100, 1)),
-#   'learning_rate': hp.loguniform('learning_rate', -3, 0),
-#   'reg_alpha': hp.loguniform('reg_alpha', -5, -1),
-#   'reg_lambda': hp.loguniform('reg_lambda', -6, -1),
-#   'min_child_weight': hp.loguniform('min_child_weight', -1, 3),
-#   'objective': 'binary:logistic',
-#   'seed': 123, # Set a seed for deterministic training
-# }
+search_space = {
+  'max_depth': scope.int(hp.quniform('max_depth', 4, 100, 1)),
+  'learning_rate': hp.loguniform('learning_rate', -3, 0),
+  'reg_alpha': hp.loguniform('reg_alpha', -5, -1),
+  'reg_lambda': hp.loguniform('reg_lambda', -6, -1),
+  'min_child_weight': hp.loguniform('min_child_weight', -1, 3),
+  'objective': 'binary:logistic',
+  'seed': 123, # Set a seed for deterministic training
+}
  
-# def train_model(params):
-#   # With MLflow autologging, hyperparameters and the trained model are automatically logged to MLflow.
-#   mlflow.xgboost.autolog()
-#   with mlflow.start_run(nested=True):
-#     train = xgb.DMatrix(data=X_train, label=y_train)
-#     validation = xgb.DMatrix(data=X_val, label=y_val)
-#     # Pass in the validation set so xgb can track an evaluation metric. XGBoost terminates training when the evaluation metric
-#     # is no longer improving.
-#     booster = xgb.train(params=params, dtrain=train, num_boost_round=1000,\
-#                         evals=[(validation, "validation")], early_stopping_rounds=50)
-#     validation_predictions = booster.predict(validation)
-#     auc_score = roc_auc_score(y_val, validation_predictions)
-#     mlflow.log_metric('auc', auc_score)
+def train_model(params):
+  # With MLflow autologging, hyperparameters and the trained model are automatically logged to MLflow.
+  mlflow.xgboost.autolog()
+  with mlflow.start_run(nested=True):
+    train = xgb.DMatrix(data=X_train, label=y_train)
+    validation = xgb.DMatrix(data=X_val, label=y_val)
+    # Pass in the validation set so xgb can track an evaluation metric. XGBoost terminates training when the evaluation metric
+    # is no longer improving.
+    booster = xgb.train(params=params, dtrain=train, num_boost_round=1000,\
+                        evals=[(validation, "validation")], early_stopping_rounds=50)
+    validation_predictions = booster.predict(validation)
+    auc_score = roc_auc_score(y_val, validation_predictions)
+    mlflow.log_metric('auc', auc_score)
  
-#     signature = infer_signature(X_train, booster.predict(train))
-#     mlflow.xgboost.log_model(booster, "model", signature=signature)
+    signature = infer_signature(X_train, booster.predict(train))
+    mlflow.xgboost.log_model(booster, "model", signature=signature)
     
-#     # Set the loss to -1*auc_score so fmin maximizes the auc_score
-#     return {'status': STATUS_OK, 'loss': -1*auc_score, 'booster': booster.attributes()}
+    # Set the loss to -1*auc_score so fmin maximizes the auc_score
+    return {'status': STATUS_OK, 'loss': -1*auc_score, 'booster': booster.attributes()}
  
-# # Greater parallelism will lead to speedups, but a less optimal hyperparameter sweep. 
-# # A reasonable value for parallelism is the square root of max_evals.
-# spark_trials = SparkTrials(parallelism=10)
+# Greater parallelism will lead to speedups, but a less optimal hyperparameter sweep. 
+# A reasonable value for parallelism is the square root of max_evals.
+spark_trials = SparkTrials(parallelism=10)
  
-# # Run fmin within an MLflow run context so that each hyperparameter configuration is logged as a child run of a parent
-# # run called "xgboost_models" .
-# with mlflow.start_run(run_name='xgboost_models'):
-#   best_params = fmin(
-#     fn=train_model, 
-#     space=search_space, 
-#     algo=tpe.suggest, 
-#     max_evals=96,
-#     trials=spark_trials,
-#   )
+# Run fmin within an MLflow run context so that each hyperparameter configuration is logged as a child run of a parent
+# run called "xgboost_models" .
+with mlflow.start_run(run_name='xgboost_models'):
+  best_params = fmin(
+    fn=train_model, 
+    space=search_space, 
+    algo=tpe.suggest, 
+    max_evals=96,
+    trials=spark_trials,
+  )
+
+# COMMAND ----------
+
+import mlflow
+logged_model = 'runs:/587e72d5b5bb451b96f1141852cfa1bf/model'
+
+# Load model as a PyFuncModel.
+loaded_model = mlflow.pyfunc.load_model(logged_model)
+
+# Predict on a Pandas DataFrame.
+import pandas as pd
+predict = loaded_model.predict(pd.DataFrame(X_train))
+
+# COMMAND ----------
+
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+
+def confusion_matrix_plot(y_true, y_pred, title):
+    matrix = confusion_matrix(y_true, y_pred)
+    sns.heatmap(matrix, fmt='g',cmap="Reds",annot_kws={"size": 12},
+               # xticklabels=['Predict_' + key for key in list(quadrant.keys())], yticklabels=['Actual_' + key for key in list(quadrant.keys())],
+                annot=True, cbar=False)
+    plt.title(title)
+    plt.show()
+
+# COMMAND ----------
+
+confusion_matrix_plot(y_train,np.where(loaded_model.predict(X_train)<0.5, 0, 1), 'XGBoost_train')
+
+# COMMAND ----------
+
+confusion_matrix_plot(y_test,np.where(loaded_model.predict(X_test)<0.5, 0, 1), 'XGBoost_test')
+
+# COMMAND ----------
+
+thresholds
+
+# COMMAND ----------
+
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn import metrics
+plt.figure(0).clf()
+fpr, tpr, thresholds = metrics.roc_curve(y_train, loaded_model.predict(X_train))
+roc_auc = metrics.auc(fpr, tpr)
+plt.plot(fpr,tpr,label=f"Train, auc={round(roc_auc, 3)}")
+fpr, tpr, thresholds = metrics.roc_curve(y_test, loaded_model.predict(X_test))
+roc_auc = metrics.auc(fpr, tpr)
+plt.plot(fpr,tpr,label=f"Test, auc={round(roc_auc, 3)}")
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('XGBoost Model')
+plt.legend(loc=0)
+plt.show()
 
 # COMMAND ----------
 

@@ -100,10 +100,14 @@ def getWitsData(df, asset_id, is_new_well=False):
       print(f'Finish for asset={asset_id}')
       break
         
-# H&P 546 547
-asset_ids = [22061363, 65642229]
+# H&P 546 547 Fish ST02 Tims 1-35H26X27X22X15 ST01
+#asset_ids = [22061363, 65642229, 74034281, 53812159]
+#asset_ids = [74034281, 53812159]
+#asset_ids = [53812159]
+#asset_ids = [74034281]
+asset_ids = [int(asset_id) for asset_id in dbutils.widgets.get("asset_ids").split(',')]
 for asset_id in asset_ids:
-  getWitsData(df_1s, asset_id)
+  getWitsData(df_1s, asset_id, is_new_well=False)
 
 # COMMAND ----------
 
@@ -113,6 +117,24 @@ for asset_id in asset_ids:
 
 dbutils.fs.rm(AD_OP_STAGE, recurse=True)
 os.makedirs(STAGE_OP_DIR, exist_ok=True)
+
+def requests_retry_session(
+    retries=3,
+    backoff_factor=0.3,
+    status_forcelist=(500, 502, 504),
+    session=None):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
+
 
 def getOperations(df, asset_id, is_new_well=False):
     apiKey = dbutils.secrets.get('Wells.Databricks.KeyVault.Secrets','corvaApi')
@@ -137,14 +159,19 @@ def getOperations(df, asset_id, is_new_well=False):
           destfile=STAGE_OP_DIR+filename
           with open(destfile, 'w') as f:
             json.dump(resp, f)
+            print(resp)
           n += 1
           if n % 10 ==0: 
             print(f"Reach timestamp {start_timestamp} for asset {asset_id}")        
         else:
           print(f'Finish for asset={asset_id}')
           break          
+#asset_ids = [53812159]
+#asset_ids = [74034281]
+asset_ids = [22061363]
+
 for asset_id in asset_ids:
-  getOperations(df_op, asset_id)
+  getOperations(df_op, asset_id, is_new_well=False)
 
 # COMMAND ----------
 
@@ -190,6 +217,14 @@ df_spark = ingestIntoDeltaTable("/AD_1s_stage/")
 
 # COMMAND ----------
 
+df_spark.select('WellName').distinct().show()
+
+# COMMAND ----------
+
+display(df_spark)
+
+# COMMAND ----------
+
 from pyspark.sql.functions import col, lit, concat, to_date, regexp_replace, lpad
 from pyspark.sql.types import TimestampType
 import re
@@ -224,6 +259,18 @@ def ingestIntoDeltaTable(folder_path):
   return df
 
 df_op = ingestIntoDeltaTable("/AD_OP_stage/")
+
+# COMMAND ----------
+
+display(df_op)
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+display(df_op)
 
 # COMMAND ----------
 

@@ -17,15 +17,15 @@ class StandIngestion(object):
         self.save = save
         self.well_names = well_names
         self.asset_ids = []
-        self.corva_ops_table = 'sandbox.auto_driller_op'
-        self.corva_wits_table = 'sandbox.auto_driller_one_second'
+        self.corva_ops_table = '03_corva.corva_operations_connections_silver'
+        self.corva_wits_table = '03_corva.corva_drilling_wits_assetid'
         self.df_wits = None
         self.df_ops = None
         self.df_master= None
         self.min_stand_length = 20.0
         self.max_stand_length = 100.0
         self.write_format = 'delta'
-        self.write_mode = 'append'
+        self.write_mode = 'overwrite'
         self.write_table_name = 'auto_driller_1s_silver_test'
         self.mnt_location = f'/mnt/delta/{self.write_table_name}/'
         self.write_table_location = 'sandbox'
@@ -49,13 +49,13 @@ class StandIngestion(object):
         return window
 
     def getOpsTable(self):
-     # df_op = (spark.table("03_corva.corva_operations_connections_silver")
-      df_op = (spark.table(self.corva_ops_table).filter(col('operation_name')=="Drilling(Connection)").orderBy('asset_id',col('RecordDateTime').asc()))
-      df_op = df_op.select("asset_id", "API", "WellName", "RecordDateTime", "start_bit_depth" )
-      df_op = df_op.withColumnRenamed('WellName', 'well_name')
+      df_op = spark.table(self.corva_ops_table)
+      df_op = df_op.filter(col('operation_name')=="Drilling(Connection)").orderBy('assetid',col('RecordDateTime').asc())
+      df_op = df_op.select("assetid", "api_number", "name", "RecordDateTime", "start_bit_depth" )
+      df_op = df_op.withColumnRenamed('assetid', 'asset_id')
+      df_op = df_op.withColumnRenamed('name', 'well_name')
       df_op = df_op.withColumnRenamed('RecordDateTime', 'start_time')
-      #df_op = df_op.withColumnRenamed('assetid', 'asset_id')
-     # df_op = df_op.filter(col("asset_id").isin(self.asset_ids))
+      df_op = df_op.filter(col("assetid").isin(self.asset_ids))
       df_op = df_op.orderBy('asset_id', col('RecordDateTime').asc())
       window = Window.partitionBy().orderBy("asset_id")
       self.df_ops = df_op.withColumn('stand_length', func.lag(col('start_bit_depth'), offset = -1).over(window) - col('start_bit_depth'))        
@@ -71,8 +71,8 @@ class StandIngestion(object):
         self.df_wits = (spark.table(self.corva_wits_table))
         self.df_wits = (self.df_wits.select("asset_id", "API", "WellName", "RecordDateTime", "bit_depth", 
                                  "hole_depth", "diff_press", "rop", "rotary_rpm", "rotary_torque", 
-                                 "weight_on_bit", "state" ))
-#                       .filter(col("asset_id").isin(self.asset_ids)))
+                                 "weight_on_bit", "state" )
+                       .filter(col("asset_id").isin(self.asset_ids)))
         self.df_wits = self.df_wits.withColumnRenamed('WellName', 'well_name')
         self.df_wits = self.df_wits.withColumnRenamed('API', 'api_num')
         self.df_wits = self.df_wits.orderBy('asset_id', col('RecordDateTime').asc())
@@ -155,7 +155,7 @@ well_names = ["Panthers-Broncos 1B", "Keydets-A 47 #4H"]
 #well_names = ["Tims 1-35H26X27X22X15 ST01"]
 #well_names = ["Fish 1-35H26X23 ST02"]
 #well_names =  [dbutils.widgets.get("well_names")]
-well_names = ["Panthers-Broncos 1B", "Keydets-A 47 #4H", "Tims 1-35H26X27X22X15 ST01", "Fish 1-35H26X23 ST01", "Fish 1-35H26X23 ST02"]
+#well_names = ["Panthers-Broncos 1B", "Keydets-A 47 #4H", "Tims 1-35H26X27X22X15 ST01", "Fish 1-35H26X23 ST01", "Fish 1-35H26X23 ST02"]
 
 si = StandIngestion(well_names = well_names, save=True)
 si.apply()

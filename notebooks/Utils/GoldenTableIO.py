@@ -72,16 +72,61 @@ def exportDFToSQLDB(df, sql_db_table_name, overwrite=False ):
 
 # COMMAND ----------
 
-df_1s = spark.table('sandbox.auto_driller_1s_silver_test')
-w = Window.partitionBy(['asset_id', 'stand_id'])
-df_temp=df_1s.withColumn('max_time', f.max('RecordDateTime').over(w) - f.expr('INTERVAL 5 MINUTES'))
-df_temp=df_temp.withColumn('min_time', f.min('RecordDateTime').over(w) + f.expr('INTERVAL 5 MINUTES'))
-df_temp = df_temp.filter((col('RecordDateTime')>col('min_time'))&(col('RecordDateTime')<col('max_time'))).drop('max_time', 'min_time')
+df_1s = loadFromSQLDB('auto_driller_1s')
+df_health = loadFromSQLDB('auto_driller_mvp_fools_gold')
 
 # COMMAND ----------
 
-exportDFToSQLDB(df_temp, 'auto_driller_1s', overwrite=False)
+write_format = 'delta'
+write_mode = 'overwrite'
+write_table_name = 'auto_driller_AD_dashboard_1s_golden'
+write_table_location = 'sandbox'
+mnt_location = f'/mnt/delta/{write_table_name}/'
+
+
+def createDeltaTable(df):
+  print('start writing to dbfs')
+  df.write.format(write_format).mode(write_mode).option("overwriteSchema", "true").save(mnt_location)
+  print('finish writing to dbfs')
+  try:
+      drop_table_command =f'DROP TABLE {write_table_location}.{write_table_name}'
+      spark.sql(drop_table_command)
+  except:
+      print('Table not exist')
+  print('Start creating the table')
+  create_table_command = f'''
+                          CREATE TABLE {write_table_location}.{write_table_name}
+                          USING DELTA LOCATION '{mnt_location}'
+                          '''
+  spark.sql(create_table_command)
+  print('Finish creating the table')
+
+createDeltaTable(df_1s)
 
 # COMMAND ----------
 
-exportToSQLDB('sandbox.auto_driller_mvp_health_test', 'auto_driller_mvp_fools_gold', overwrite=False)
+write_format = 'delta'
+write_mode = 'overwrite'
+write_table_name = 'auto_driller_AD_dashboard_health'
+write_table_location = 'sandbox'
+mnt_location = f'/mnt/delta/{write_table_name}/'
+
+
+def createDeltaTable(df):
+  print('start writing to dbfs')
+  df.write.format(write_format).mode(write_mode).option("overwriteSchema", "true").save(mnt_location)
+  print('finish writing to dbfs')
+  try:
+      drop_table_command =f'DROP TABLE {write_table_location}.{write_table_name}'
+      spark.sql(drop_table_command)
+  except:
+      print('Table not exist')
+  print('Start creating the table')
+  create_table_command = f'''
+                          CREATE TABLE {write_table_location}.{write_table_name}
+                          USING DELTA LOCATION '{mnt_location}'
+                          '''
+  spark.sql(create_table_command)
+  print('Finish creating the table')
+  
+createDeltaTable(df_health)

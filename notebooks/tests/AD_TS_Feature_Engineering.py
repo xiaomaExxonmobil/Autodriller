@@ -47,7 +47,7 @@ df_temp.head()
 
 # COMMAND ----------
 
-df_temp['new_id'] = df_temp['asset_id'].astype('str') + '~' + df_temp['stand_id'].astype('str')
+df_temp['new_id'] = df_temp['asset_id'].astype('str') + '_' + df_temp['stand_id'].astype('str')
 
 # COMMAND ----------
 
@@ -90,7 +90,7 @@ extracted_features.head()
 
 # COMMAND ----------
 
-extracted_features.reset
+spark.conf.set('spark.sql.execution.arrow.enabled', 'False')
 
 # COMMAND ----------
 
@@ -127,7 +127,3 @@ def createDeltaTable(df):
   print('Finish creating the table')
 
 createDeltaTable(df_spark)
-
-# COMMAND ----------
-
-

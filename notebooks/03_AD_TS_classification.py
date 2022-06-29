@@ -37,12 +37,7 @@ df_agg = df.groupBy('asset_id','stand_id').agg(stddev('rop_diff').alias('rop_dif
                                                ((max('RecordDateTime').cast('long')
                                                  -min('RecordDateTime')                                                
                                                  .cast('long'))/60).cast('int').alias('stand_duration'))
-display(df_agg)
-
-# COMMAND ----------
-
-df_agg_tim = df_agg.filter(col('well_name')=='Tims 1-35H26X27X22X15')
-threshold1, threshold2 = df_agg_tim.approxQuantile('rop_diff', [0.4, 0.98], relativeError=0)
+#display(df_agg)
 
 # COMMAND ----------
 
@@ -66,24 +61,24 @@ df_buck.select('well_name').distinct().show()
 
 # COMMAND ----------
 
-def plot_health(df):
-  fig, ax = plt.subplots(figsize=(10, 5))
-  colors = {'good':'green', 'bad':'red', 'ok':'orange'}
-  ax.scatter(df['stand_id'], df['stand_duration'], c=df['health_total'].map(colors))
-  ax.set_xlabel('stand_id')
-  plt.show()
+# def plot_health(df):
+#   fig, ax = plt.subplots(figsize=(10, 5))
+#   colors = {'good':'green', 'bad':'red', 'ok':'orange'}
+#   ax.scatter(df['stand_id'], df['stand_duration'], c=df['health_total'].map(colors))
+#   ax.set_xlabel('stand_id')
+#   plt.show()
 
-df_agg_tim = df_buck.filter(col('well_name')=='Tims 1-35H26X27X22X15').toPandas()
-df_agg_45= df_buck.filter(col('well_name')=='BdC-45(h) (Aislacion)').toPandas()
-df_agg_fish= df_buck.filter(col('well_name')=='Fish 1-35H26X23').toPandas()
-df_agg_546= df_buck.filter(col('well_name')=='Keydets-A 47 #4H').toPandas()
-df_agg_547= df_buck.filter(col('well_name')=='Panthers-Broncos 1B').toPandas()
+# df_agg_tim = df_buck.filter(col('well_name')=='Tims 1-35H26X27X22X15').toPandas()
+# df_agg_45= df_buck.filter(col('well_name')=='BdC-45(h) (Aislacion)').toPandas()
+# df_agg_fish= df_buck.filter(col('well_name')=='Fish 1-35H26X23').toPandas()
+# df_agg_546= df_buck.filter(col('well_name')=='Keydets-A 47 #4H').toPandas()
+# df_agg_547= df_buck.filter(col('well_name')=='Panthers-Broncos 1B').toPandas()
 
-plot_health(df_agg_tim)
-plot_health(df_agg_45) 
-plot_health(df_agg_fish)
-plot_health(df_agg_546)
-plot_health(df_agg_547)
+# plot_health(df_agg_tim)
+# plot_health(df_agg_45) 
+# plot_health(df_agg_fish)
+# plot_health(df_agg_546)
+# plot_health(df_agg_547)
 
 # COMMAND ----------
 
@@ -122,12 +117,25 @@ df_buck = df_buck.withColumn('health_total', when(df_buck.stand_duration>thresho
 
 # COMMAND ----------
 
-df_agg_tim = df_buck.filter(col('well_name')=='Tims 1-35H26X27X22X15').toPandas()
-plot_health(df_agg_tim)
+# df_agg_tim = df_buck.filter(col('well_name')=='Tims 1-35H26X27X22X15').toPandas()
+# plot_health(df_agg_tim)
 
 # COMMAND ----------
 
-df_well = df_buck.filter(col('well_name').isin('Keydets-A 47 #4H', 'Panthers-Broncos 1B'))
+#df_well = df_buck.filter(col('well_name').isin('Keydets-A 47 #4H', 'Panthers-Broncos 1B'))
+#df_well = df_buck.filter(col('well_name').isin('Fish 1-35H26X23 ST02', 'Tims 1-35H26X27X22X15 ST01'))
+#df_well = df_buck.filter(col('well_name').isin('Tims 1-35H26X27X22X15 ST01'))
+#select_well =  dbutils.widgets.get("well_names")
+#df_well = df_buck.filter(col('well_name').isin('Fish 1-35H26X23 ST02'))
+#df_well = df_buck.filter(col('well_name').isin(select_well))
+#well_names = ["Panthers-Broncos 1B", "Keydets-A 47 #4H", "Tims 1-35H26X27X22X15 ST01", "Fish 1-35H26X23 ST01", "Fish 1-35H26X23 ST02"]
+well_names = ["Panthers-Broncos 1B", "Keydets-A 47 #4H"]
+df_well = df_buck.filter(col('well_name').isin(well_names))
+
+
+# COMMAND ----------
+
+display(df_well)
 
 # COMMAND ----------
 

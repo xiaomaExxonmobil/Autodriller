@@ -220,7 +220,7 @@ from tsfresh.feature_extraction import EfficientFCParameters, MinimalFCParameter
 # extracted_features = extract_features(df_temp[['stand_id', 'RecordDateTime', 'rop']], column_id="stand_id", 
 #                                       column_sort="RecordDateTime")
 
-extracted_features = extract_features(df_temp[['new_id', 'RecordDateTime', 'rop']], column_id='new_id', 
+extracted_features = extract_features(df_temp[['new_id', 'RecordDateTime', 'rop', 'weight_on_bit']], column_id='new_id', 
                                       column_sort="RecordDateTime",
                                     default_fc_parameters= MinimalFCParameters())
 
@@ -234,15 +234,7 @@ extracted_features.shape
 
 # COMMAND ----------
 
-df_temp.head()
-
-# COMMAND ----------
-
 y = df_temp.groupby(['new_id'])['health_total'].apply(lambda x: x.min()).map({'good':0, 'bad':1})
-
-# COMMAND ----------
-
-df_temp.health_total.unique()
 
 # COMMAND ----------
 
@@ -250,7 +242,32 @@ y.shape
 
 # COMMAND ----------
 
-y.dropna()
+df_train_new = extracted_features
+df_train_new['Label'] = y
+
+# COMMAND ----------
+
+df_train_new.head()
+
+# COMMAND ----------
+
+#num_cols = ['rop__sum_values', 'rop__median', 'rop__mean', 'rop__length']
+num_cols = [col for col in df_train_new.columns if col!= 'Label']
+plt.figure(figsize=(25,9))
+for i, col_i in enumerate(num_cols):
+  plt.subplot(2,len(num_cols)//2,i+1) 
+  g = sns.boxenplot(x="Label", y=col_i, data=df_train_new, showfliers=False)
+plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0)
+
+# COMMAND ----------
+
+sns.countplot(data=df_train_new, x='Label')
+
+# COMMAND ----------
+
+# extracted_features2 = extract_features(df_temp[['new_id', 'RecordDateTime', 'rop', 'weight_on_bit']], column_id='new_id', 
+#                                       column_sort="RecordDateTime",
+#                                     default_fc_parameters= EfficientFCParameters())
 
 # COMMAND ----------
 
@@ -280,6 +297,10 @@ X_new = extracted_features
 
 # COMMAND ----------
 
+y = df_temp.groupby(['new_id'])['health_total'].apply(lambda x: x.min()).map({'good':0, 'bad':1})
+
+# COMMAND ----------
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 
@@ -287,12 +308,23 @@ X_train, X_test, y_train, y_test = train_test_split(X_new, y, test_size=0.3, ran
 
 # COMMAND ----------
 
-!pip install mlflow
+# CV to find the best hyper-parameters
+param_grid = {'penalty' : ['l1','l2'],
+              'C' : [0.1, 0.2, 0.5, 1, 1.5, 2] ,
+              'solver': ['saga', 'liblinear']}
+
+grid_clf = GridSearchCV(LogisticRegression(max_iter = 300), param_grid, cv=5,verbose=10, scoring = 'f1')
+grid_clf.fit(X_train, y_train.ravel())
+grid_clf.best_estimator_ # show the best model
 
 # COMMAND ----------
 
-import mlflow
-from sklearn.metrics import confusion_matrix,roc_curve, auc, recall_score, accuracy_score, roc_auc_score, precision_score,plot_precision_recall_curve,precision_recall_curve,plot_roc_curve
+lg_model = LogisticRegression(penalty='l1', C = 1.5, fit_intercept=True, solver='saga',max_iter=300)#,class_weight ='balanced')
+lg_model.fit(X_train, y_train.ravel())
+
+# COMMAND ----------
+
+from sklearn.metrics import confusion_matrix,roc_curve, auc, recall_score, accuracy_score, precision_score,plot_precision_recall_curve,precision_recall_curve,plot_roc_curve
 
 def plot_roc_and_precision_recall(model, X_train, y_train, X_test, y_test, model_name):
     """
@@ -334,69 +366,93 @@ def plot_roc_and_precision_recall(model, X_train, y_train, X_test, y_test, model
     plt.show()
 
     return auc_train, auc_test
+  
+def eval_metrics(y_train, pred_train, y_test, pred_test):
+    """
+    This function returns a matrix of recall, precision, and accuracy for both training and test data.
+    Input types are the same as those for predictions_optimal_prob (excluding model type and p_limit)
+    Outputs:
+        outs: a dataframe listing the key metrics
+    """
+
+    outs = pd.DataFrame()
+    outs['Metrics'] = ['Recall_Training', 'Recall_Test','Precision_Training','Precision_Test','Accuracy_Training', 'Accuracy_Test']
+    outs['Value'] = [recall_score(y_train, pred_train), recall_score(y_test,pred_test),  
+                    precision_score( y_train, pred_train), precision_score(y_test,pred_test),
+                    accuracy_score(y_train, pred_train),  accuracy_score(y_test,pred_test) ]
+
+    outs['Value'] = round(outs['Value'], 4)
+    return outs
+  
+  
+def predictions_optimal_prob(model, X_train, X_test, y_train, y_test, p_limit):
+  
+    """
+    This function returns the predictions for training and test data following the logic described above.
+    
+    Inputs:
+        model: a fitted classification model from sklearn
+        X_train: feature data in the training set
+        y_train: predicted data in the training set
+        X_test:  feature data in the test set
+        y_test:  predicted data in the test set
+        p_limit: lower-bound limit for precision
+    Outputs:
+        pred_train: predictions for the training dataset
+        pred_test: predictions for the test dataset
+        df_prec_recall: a dataframe summarizing the precision and recall
+    """
+    # predictions in probability 
+    pred_train_proba = model.predict_proba(X_train)[:,1]
+    pred_test_proba = model.predict_proba(X_test)[:,1]
+    # precision and recall scatters
+    precision_train, recall_train, thresholds_train = precision_recall_curve(y_train, pred_train_proba)
+    precision_test, recall_test, thresholds_test = precision_recall_curve(y_test, pred_test_proba)
+
+    df_prec_recall = pd.DataFrame()
+    df_prec_recall['thresholds'] = thresholds_test
+    df_prec_recall['recall'] = recall_test[1:]
+    df_prec_recall['precision'] = precision_test[1:]
+    # make final predictions based on thresholds_test defined above
+    prob_thresh = df_prec_recall[df_prec_recall['precision'] > p_limit].sort_values(by = 'recall', ascending=False).reset_index().drop(['index'], axis=1)['thresholds'][0]
+    pred_train = 1*(pred_train_proba > prob_thresh)
+    pred_test = 1*(pred_test_proba > prob_thresh)
+
+    return pred_train, pred_test, df_prec_recall
+
 
 # COMMAND ----------
 
-mlflow.autolog()
+lg_auc_train, lg_auc_test = plot_roc_and_precision_recall(lg_model, X_train, y_train, X_test, y_test, model_name = 'Logistic')
 
 # COMMAND ----------
 
-import sklearn
-with mlflow.start_run(run_name='random_forest') as run:
-  model = RandomForestClassifier(
-    random_state=0, 
-    max_depth=20
-  )
-  model.fit(X_train, y_train)
-
-  predicted_probs = model.predict_proba(X_test)
-  roc_auc = sklearn.metrics.roc_auc_score(y_test, predicted_probs[:,1])
-  mlflow.log_metric("test_auc", roc_auc)
-  print("Test AUC of: {}".format(roc_auc))
+X_train.head()
 
 # COMMAND ----------
 
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
-
-sns.heatmap(confusion_matrix(model.predict(X_test), y_test), annot=True)
+lg_auc_train
 
 # COMMAND ----------
 
-plot_roc_and_precision_recall(model, X_train, y_train, X_test, y_test, model_name='Random Forest')
+lg_auc_test
 
 # COMMAND ----------
 
-from sklearn.metrics import accuracy_score
-accuracy_score(y_test, model.predict(X_test))
+lg_pred_train, lg_pred_test, lg_df_prec_recall = predictions_optimal_prob(lg_model, X_train, X_test, y_train, y_test, p_limit = 0.6)
 
 # COMMAND ----------
 
-print(f'AUC: {roc_auc_score(y_test, model.predict(X_test))}')
+lg_outs = eval_metrics(y_train, lg_pred_train, y_test, lg_pred_test)
+lg_outs
 
 # COMMAND ----------
 
-import sklearn
-with mlflow.start_run(run_name='gradient_boost') as run:
-  model = sklearn.ensemble.GradientBoostingClassifier(random_state=0)
-  model.fit(X_train, y_train)
-  predicted_probs = model.predict_proba(X_test)
-  roc_auc = sklearn.metrics.roc_auc_score(y_test, predicted_probs[:,1])
-  mlflow.log_metric("test_auc", roc_auc)
-  print("Test AUC of: {}".format(roc_auc))
+X_train
 
 # COMMAND ----------
 
-model.predict_proba(X_test)
-
-# COMMAND ----------
-
-sns.heatmap(confusion_matrix(model.predict(X_test), y_test), annot=True)
-
-# COMMAND ----------
-
-from sklearn.metrics import accuracy_score
-accuracy_score(y_test, model.predict(X_test))
+!pip install mlflow
 
 # COMMAND ----------
 
@@ -404,10 +460,8 @@ accuracy_score(y_test, model.predict(X_test))
 
 # COMMAND ----------
 
-X_val = X_test
-y_val = y_test
-
-# COMMAND ----------
+# X_val = X_test
+# y_val = y_test
 
 # import mlflow.xgboost
 # import numpy as np
@@ -416,7 +470,7 @@ y_val = y_test
 # from hyperopt.pyll import scope
 # from mlflow.models.signature import infer_signature
 # from mlflow.utils.environment import _mlflow_conda_env
-
+# from sklearn.metrics import roc_auc_score
 
  
 # search_space = {
@@ -463,7 +517,3 @@ y_val = y_test
 #     max_evals=96,
 #     trials=spark_trials,
 #   )
-
-# COMMAND ----------
-
-
